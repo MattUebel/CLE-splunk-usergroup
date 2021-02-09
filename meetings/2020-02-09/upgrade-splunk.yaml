@@ -1,0 +1,80 @@
+- hosts: all
+  become: true
+  strategy: free
+  serial: 40
+  tasks:
+    - name: get splunk pid
+      shell: head -1 /opt/splunk/var/run/splunk/splunkd.pid
+      register: splunk_pid
+
+    - name: stop splunk
+      systemd:
+        name: splunkd
+        state: stopped
+
+    - name: wait for pid status file absence
+      wait_for:
+        path: /proc/{{ splunk_pid.stdout }}/status
+        state: absent
+        timeout: 1200
+
+    - name: check if the pid file exists
+      stat:
+        path: /opt/splunk/var/run/splunk/splunkd.pid
+      register: pid_result
+
+    - name: remove pid file
+      file:
+        path: /opt/splunk/var/run/splunk/splunkd.pid
+        state: absent
+      when: pid_result.stat.exists == True
+
+    - name: create backup directory
+      file:
+        path: /opt/splunk-upgrade-806
+        state: directory
+        owner: splunk
+        group: splunk
+
+    - name: make backup
+      command: tar czvf /opt/splunk-upgrade-806/splunketc.tgz /opt/splunk/etc
+
+    - name: stop splunk
+      systemd:
+        name: splunkd
+        state: stopped
+
+    - name: check if the backup exists
+      stat:
+        path: /opt/splunk-upgrade-806/splunketc.tgz
+      register: stat_result
+
+    - name: upgrade splunk
+      apt:
+        name: splunk
+        state: latest
+        update_cache: yes
+        cache_valid_time: 10
+      when: stat_result.stat.exists == True
+
+    - name: chown to splunk
+      file:
+        path: "/opt/splunk"
+        owner: splunk
+        group: splunk
+        recurse: yes
+      when: stat_result.stat.exists == True
+
+    - name: start splunk
+      systemd:
+        state: started
+        name: splunkd
+      when: stat_result.stat.exists == True
+
+    - debug:
+        msg: ERROR - could not locate backup
+      when: stat_result.stat.exists == False
+
+    - debug:
+        msg: ERROR - splunk appears to be running
+      when:  splunk_status_result.stdout != "splunkd is not running."
