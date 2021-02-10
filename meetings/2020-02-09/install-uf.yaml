@@ -1,0 +1,73 @@
+- hosts: forwarders
+  become: true
+  vars_files:
+    - ansible_vars_secret.yml
+  tasks:
+    - name: create splunk group
+      group:
+        name: splunk
+        gid: 341
+        state: present
+    - name: create splunk user
+      user:
+        name: splunk
+        comment: "Splunk user"
+        uid: 341
+        group: splunk
+        shell: /bin/bash
+        home: /home/splunk
+        state: present
+    - name: install forwarder
+      apt:
+        name: splunkforwarder
+        state: latest
+        update_cache: yes
+        cache_valid_time: 86400
+    - name: create directories
+      file:
+        path: /opt/splunkforwarder/etc/apps/my_app_logs/local
+        state: directory
+    - name: put splunk-launch.conf into place
+      copy:
+        src: splunk-launch.conf
+        dest: /opt/splunkforwarder/etc/splunk-launch.conf
+    - name: put inputs.conf into place
+      copy:
+        src: inputs.conf
+        dest: /opt/splunkforwarder/etc/apps/my_app_logs/local/inputs.conf
+    - name: put splunkd.service into place
+      copy:
+        src: splunkd.service
+        dest: /usr/local/lib/systemd/system/splunkd.service
+    - name: put limits.conf into place
+      copy:
+        src: limits.conf
+        dest: /opt/splunkforwarder/etc/system/local/limits.conf        
+    - name: put server.conf into place
+      copy:
+        src: server.conf
+        dest: /opt/splunkforwarder/etc/system/local/server.conf
+    - name: template outputs
+      template:
+        src: outputs.conf.j2
+        dest: /opt/splunkforwarder/etc/system/local/outputs.conf
+    - name: chown to splunk
+      file:
+        path: "/opt/splunkforwarder"
+        owner: splunk
+        group: splunk
+        recurse: yes
+    - name: batch input directories
+      file:
+        path: "/mnt/tmp/send_to_splunk_then_delete/my_app_logs"
+        state: directory
+        owner: deploy
+        group: splunk
+        mode: 0775
+    - name: enable and start splunk
+      systemd:
+        name: splunkd
+        enabled: yes
+        daemon_reload: yes
+        state: started
+        
